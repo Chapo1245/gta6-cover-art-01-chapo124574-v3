@@ -1,0 +1,134 @@
+/* Vice Lights Cover Maker — dark neon editor UI. Fonts are the local OFL
+   Geist files (app/fonts/Geist-Bold.ttf and Geist-Medium.ttf, OFL.txt). */
+@font-face {
+  font-family: 'Geist';
+  src: url('./fonts/Geist-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('./fonts/Geist-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0d0618;
+  color: #f4eefc;
+  font-family: 'Geist', system-ui, sans-serif;
+  font-weight: 500;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  gap: 24px;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 20px;
+  align-items: start;
+}
+
+.controls h1 {
+  margin: 0 0 4px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(92deg, #37f4ff, #ff2e88 55%, #ffb347);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tagline { margin: 0 0 18px; color: #c9b8e8; font-size: 14px; line-height: 1.5; }
+
+fieldset {
+  border: 1px solid #3d2a5e;
+  border-radius: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px 14px;
+  background: #170d2a;
+}
+
+legend {
+  color: #ffb347;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0 6px;
+}
+
+label { display: block; margin: 8px 0; font-size: 13px; color: #e6dcf7; }
+
+input[type="text"], select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #4b3672;
+  border-radius: 8px;
+  background: #0d0618;
+  color: #f4eefc;
+  font: inherit;
+  font-size: 14px;
+}
+
+input[type="file"] { display: block; margin-top: 4px; font-size: 12px; }
+input[type="range"] { width: 100%; accent-color: #ff2e88; }
+
+.radios { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.radios label { margin: 4px 0; white-space: nowrap; }
+.radios input { accent-color: #ff2e88; }
+
+.slot { border-top: 1px dashed #3d2a5e; padding-top: 4px; }
+.slot:first-of-type { border-top: 0; padding-top: 0; }
+.hint { margin: 2px 0 0; color: #9d8ac2; font-size: 12px; }
+
+.actions { display: flex; gap: 10px; margin-top: 10px; }
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+#export { background: linear-gradient(92deg, #ff2e88, #ff7a18); color: #fff; flex: 1; }
+#shuffle { background: #241640; color: #e6dcf7; border: 1px solid #4b3672; }
+button:hover { filter: brightness(1.15); }
+
+#status { min-height: 1.2em; margin: 10px 0 0; color: #8fe3c0; font-size: 13px; }
+
+.preview { position: sticky; top: 20px; }
+#cover {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px #3d2a5e;
+  background: #160a24;
+  cursor: grab;
+}
+#cover:active { cursor: grabbing; }
+.preview-note { color: #9d8ac2; font-size: 13px; text-align: center; }
+
+/* Screenshot scenes: cover alone, no editor chrome. */
+body.shot-cover { background: #160a24; }
+body.shot-cover .app { display: block; max-width: none; padding: 0; }
+body.shot-cover .controls, body.shot-cover .preview-note { display: none; }
+body.shot-cover .preview { position: static; }
+body.shot-cover #cover { border-radius: 0; box-shadow: none; width: 100vw; height: 100vh; object-fit: contain; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .preview { position: static; }
+}
