@@ -1,242 +1,306 @@
-// Wires the page: pick photos, crop and position each panel, edit the caption,
-// pick a layout, grade and title treatment, and export the cover as a PNG.
-// A `?shot=` query sets up a fixed scene for a screenshot instead (./shots.js).
-// Photos are read on the person's own machine and never uploaded.
-import { drawCover } from './cover.js';
-import { GRADES, LAYOUTS, SIZES, TITLE_STYLES, VARIANTS } from './presets.js';
+// Vice Lights Cover Maker — editor wiring. Owns the state (variant, layout,
+// grade, title, the three photos and each panel's crop), binds every control,
+// paints the live preview through cover.js, and exports the PNG. Screenshot
+// scenes (?shot=…) are delegated to shots.js.
+
+import { drawCover, panelRects } from './cover.js';
+import { GRADES, LAYOUTS, SAMPLES, SAMPLE_ORDER, SIZES, TITLE_STYLES, VARIANTS } from './presets.js';
 import { runShot } from './shots.js';
 
-const canvas = document.getElementById('cover');
-const status = document.getElementById('status');
+const $ = (id) => document.getElementById(id);
+const preview = $('preview');
+const statusEl = $('status');
 
-/** The editor state: everything drawCover needs, plus the loaded photos. */
-export const coverState = {
+export const state = {
+  variant: 'palmHeist',
   layout: 'triptych',
   grade: 'sunset',
   titleStyle: 'gradient',
-  title: 'PALM HEIST',
-  subtitle: 'BOULEVARD CREW',
-  tagline: 'ONE LAST SCORE AT SUNSET',
   size: 'landscape',
-  halftone: 1,
-  seed: 7,
+  title: 'PALM HEIST',
+  subtitle: 'VICE CITY • GOLDEN HOUR',
+  photos: ['boulevard', 'rooftop', 'pier'],
   crops: [
-    { cx: 0.5, cy: 0.5, zoom: 1 },
-    { cx: 0.5, cy: 0.5, zoom: 1 },
-    { cx: 0.5, cy: 0.5, zoom: 1 },
+    { zoom: 1, ox: 0, oy: 0 },
+    { zoom: 1, ox: 0, oy: 0 },
+    { zoom: 1, ox: 0, oy: 0 },
   ],
+  images: [null, null, null],
+  seed: 7,
 };
 
-/** The three loaded photos (HTMLImageElement or null), one per panel. */
-export const coverPhotos = [null, null, null];
+function say(message) {
+  statusEl.textContent = message;
+}
 
-/** Loads an image from a URL, resolving to the image once it can be drawn. */
-export function loadImage(url) {
+function loadImage(src) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`cannot load ${url}`));
-    img.src = url;
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Could not load ${src}`));
+    image.src = src;
   });
 }
 
-/** Redraws the live preview at the chosen export size. */
-export function redrawCover() {
-  const size = SIZES[coverState.size] ?? SIZES.landscape;
-  if (canvas.width !== size.w || canvas.height !== size.h) {
-    canvas.width = size.w;
-    canvas.height = size.h;
+async function loadSample(slot, sampleId) {
+  state.photos[slot] = sampleId;
+  const sample = SAMPLES[sampleId];
+  if (!sample) {
+    state.images[slot] = null;
+    draw();
+    return;
   }
-  drawCover(canvas, coverPhotos, coverState);
-}
-
-/** Loads a sample photo into a panel and redraws. */
-export async function setSamplePhoto(slot, name) {
   try {
-    coverPhotos[slot] = await loadImage(`samples/${name}.jpg`);
+    state.images[slot] = await loadImage(sample.file);
   } catch {
-    coverPhotos[slot] = null;
+    state.images[slot] = null;
+    say(`Sample photo ${sample.label} failed to load.`);
   }
-  redrawCover();
+  draw();
 }
 
-/** Applies one of the shipped art directions (a VARIANTS entry) to the editor. */
-export async function applyVariant(variantId) {
+function draw() {
+  drawCover(preview, {
+    images: state.images,
+    title: state.title,
+    subtitle: state.subtitle,
+    layout: state.layout,
+    grade: state.grade,
+    titleStyle: state.titleStyle,
+    size: SIZES[state.size],
+    crops: state.crops,
+    seed: state.seed,
+  });
+}
+
+function syncControls() {
+  $('title').value = state.title;
+  $('subtitle').value = state.subtitle;
+  document.querySelectorAll('input[name="layout"]').forEach((radio) => {
+    radio.checked = radio.value === state.layout;
+  });
+  document.querySelectorAll('input[name="grade"]').forEach((radio) => {
+    radio.checked = radio.value === state.grade;
+  });
+  document.querySelectorAll('input[name="titleStyle"]').forEach((radio) => {
+    radio.checked = radio.value === state.titleStyle;
+  });
+  $('size').value = state.size;
+  state.photos.forEach((photo, i) => {
+    $(`sample${i}`).value = photo ?? '';
+    $(`zoom${i}`).value = String(state.crops[i].zoom);
+    $(`zoomValue${i}`).textContent = `${state.crops[i].zoom.toFixed(1)}x`;
+  });
+  document.querySelectorAll('#variants button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.variant === state.variant);
+  });
+}
+
+async function applyVariant(variantId) {
   const variant = VARIANTS[variantId];
   if (!variant) return;
-  coverState.layout = variant.layout;
-  coverState.grade = variant.grade;
-  coverState.titleStyle = variant.titleStyle;
-  coverState.title = variant.title;
-  coverState.subtitle = variant.subtitle;
-  coverState.tagline = variant.tagline;
-  if (variant.crops) {
-    coverState.crops = variant.crops.map((c) => ({ ...c }));
-  }
-  syncControlValues();
-  await Promise.all(variant.photos.map((name, i) => setSamplePhoto(i, name)));
-  redrawCover();
+  state.variant = variantId;
+  state.layout = variant.layout;
+  state.grade = variant.grade;
+  state.titleStyle = variant.titleStyle;
+  state.title = variant.title;
+  state.subtitle = variant.subtitle;
+  state.photos = [...variant.photos];
+  state.crops = state.crops.map(() => ({ zoom: 1, ox: 0, oy: 0 }));
+  state.seed = 7 + Object.keys(VARIANTS).indexOf(variantId);
+  syncControls();
+  await Promise.all(variant.photos.map((photo, i) => loadSample(i, photo)));
+  say(`${variant.label} loaded — drag a panel to reposition it, then export.`);
 }
 
-/** Writes the state back into the form controls. */
-export function syncControlValues() {
-  document.getElementById('title').value = coverState.title;
-  document.getElementById('subtitle').value = coverState.subtitle;
-  document.getElementById('tagline').value = coverState.tagline;
-  document.getElementById('size').value = coverState.size;
-  for (const [group, value] of [
-    ['layout', coverState.layout],
-    ['grade', coverState.grade],
-    ['titleStyle', coverState.titleStyle],
-  ]) {
-    const radio = document.querySelector(`input[name="${group}"][value="${value}"]`);
-    if (radio) radio.checked = true;
-  }
-}
-
-/** Exports the current cover as a PNG file download. */
-export function exportCoverPng() {
-  redrawCover();
-  const size = SIZES[coverState.size] ?? SIZES.landscape;
-  canvas.toBlob((blob) => {
-    if (!blob) {
-      status.textContent = 'Export failed: the canvas could not make a PNG.';
-      return;
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `vice-lights-cover-${size.w}x${size.h}.png`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    status.textContent = `Saved ${a.download} (${size.w} x ${size.h}).`;
-    window.__exportDone = true;
-  }, 'image/png');
-}
-
-/** Picks a random layout, grade and title treatment, then redraws. */
-export function shuffleCover() {
-  const pick = (obj) => {
-    const keys = Object.keys(obj);
-    return keys[Math.floor(Math.random() * keys.length)];
-  };
-  coverState.layout = pick(LAYOUTS);
-  coverState.grade = pick(GRADES);
-  coverState.titleStyle = pick(TITLE_STYLES);
-  coverState.seed = Math.floor(Math.random() * 1000);
-  syncControlValues();
-  redrawCover();
-  status.textContent = 'Shuffled the look — export it if you like it.';
-}
-
-/** Which panel (if any) a point on the preview canvas falls in. */
-export function panelAtPoint(clientX, clientY) {
-  const rect = canvas.getBoundingClientRect();
-  const px = ((clientX - rect.left) / rect.width) * canvas.width;
-  const py = ((clientY - rect.top) / rect.height) * canvas.height;
-  const layout = LAYOUTS[coverState.layout] ?? LAYOUTS.heroDuo;
-  const hit = layout.panels.findIndex((p) => (
-    px >= p.x * canvas.width && px < (p.x + p.w) * canvas.width
-    && py >= p.y * canvas.height && py < (p.y + p.h) * canvas.height
-  ));
-  return hit === -1 ? null : { slot: hit, px, py };
-}
-
-function wireControls() {
-  document.querySelectorAll('.slot').forEach((slotEl) => {
-    const slot = Number(slotEl.dataset.slot);
-    slotEl.querySelector('.file').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        coverPhotos[slot] = await loadImage(URL.createObjectURL(file));
-        redrawCover();
-        status.textContent = `Panel ${slot + 1}: loaded ${file.name}.`;
-      } catch {
-        status.textContent = `Panel ${slot + 1}: that file could not be read as a photo.`;
+// One PNG, at the chosen post size, downloaded straight from the canvas.
+export function exportPng() {
+  return new Promise((resolve) => {
+    preview.toBlob((blob) => {
+      if (!blob) {
+        say('Export failed — nothing to save yet.');
+        resolve(null);
+        return;
       }
-    });
-    slotEl.querySelector('.sample').addEventListener('change', (e) => {
-      setSamplePhoto(slot, e.target.value);
-    });
-    slotEl.querySelector('.zoom').addEventListener('input', (e) => {
-      coverState.crops[slot].zoom = Number(e.target.value);
-      redrawCover();
-    });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const size = SIZES[state.size];
+      link.href = url;
+      link.download = `vice-lights-${state.size}-${size.width}x${size.height}.png`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      say(`Exported ${size.width} x ${size.height} PNG.`);
+      resolve(blob);
+    }, 'image/png');
   });
-
-  for (const [group, key] of [
-    ['layout', 'layout'],
-    ['grade', 'grade'],
-    ['titleStyle', 'titleStyle'],
-  ]) {
-    document.querySelectorAll(`input[name="${group}"]`).forEach((radio) => {
-      radio.addEventListener('change', () => {
-        coverState[key] = radio.value;
-        redrawCover();
-      });
-    });
-  }
-
-  document.getElementById('title').addEventListener('input', (e) => {
-    coverState.title = e.target.value;
-    redrawCover();
-  });
-  document.getElementById('subtitle').addEventListener('input', (e) => {
-    coverState.subtitle = e.target.value;
-    redrawCover();
-  });
-  document.getElementById('tagline').addEventListener('input', (e) => {
-    coverState.tagline = e.target.value;
-    redrawCover();
-  });
-  document.getElementById('size').addEventListener('change', (e) => {
-    coverState.size = e.target.value;
-    redrawCover();
-  });
-  document.getElementById('export').addEventListener('click', exportCoverPng);
-  document.getElementById('shuffle').addEventListener('click', shuffleCover);
-
-  // Drag the preview to reposition the photo in the panel under the pointer.
-  let drag = null;
-  canvas.addEventListener('pointerdown', (e) => {
-    const hit = panelAtPoint(e.clientX, e.clientY);
-    if (!hit) return;
-    canvas.setPointerCapture(e.pointerId);
-    drag = { ...hit, startX: e.clientX, startY: e.clientY };
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const rect = canvas.getBoundingClientRect();
-    const layout = LAYOUTS[coverState.layout] ?? LAYOUTS.heroDuo;
-    const panel = layout.panels[drag.slot];
-    const crop = coverState.crops[drag.slot];
-    crop.cx -= ((e.clientX - drag.startX) / rect.width) / panel.w;
-    crop.cy -= ((e.clientY - drag.startY) / rect.height) / panel.h;
-    crop.cx = Math.min(1, Math.max(0, crop.cx));
-    crop.cy = Math.min(1, Math.max(0, crop.cy));
-    drag.startX = e.clientX;
-    drag.startY = e.clientY;
-    redrawCover();
-  });
-  canvas.addEventListener('pointerup', () => { drag = null; });
 }
 
-wireControls();
+function shuffleLook() {
+  const ids = Object.keys(VARIANTS);
+  const next = ids[Math.floor(Math.random() * ids.length)];
+  const photos = [...SAMPLE_ORDER].sort(() => Math.random() - 0.5).slice(0, 3);
+  const variant = VARIANTS[next];
+  state.variant = next;
+  state.layout = variant.layout;
+  state.grade = variant.grade;
+  state.titleStyle = variant.titleStyle;
+  state.title = variant.title;
+  state.subtitle = variant.subtitle;
+  state.photos = photos;
+  state.crops = state.crops.map(() => ({ zoom: 1, ox: 0, oy: 0 }));
+  state.seed = Math.floor(Math.random() * 1000);
+  syncControls();
+  Promise.all(photos.map((photo, i) => loadSample(i, photo))).then(() => {
+    say(`Shuffled to ${variant.label} with a fresh photo set.`);
+  });
+}
 
-const shot = new URLSearchParams(location.search).get('shot');
-if (shot) {
-  runShot(shot, new URLSearchParams(location.search), {
-    applyVariant,
-    setSamplePhoto,
-    exportCoverPng,
-    redrawCover,
-    state: coverState,
+function buildVariantButtons() {
+  const holder = $('variants');
+  for (const variant of Object.values(VARIANTS)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.variant = variant.id;
+    button.textContent = variant.label;
+    button.addEventListener('click', () => applyVariant(variant.id));
+    holder.appendChild(button);
+  }
+}
+
+function buildRadioGroup(name, options, onChange) {
+  const holder = $(`${name}Group`);
+  for (const option of Object.values(options)) {
+    const label = document.createElement('label');
+    label.className = 'chip';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = name;
+    radio.value = option.id;
+    radio.addEventListener('change', () => onChange(option.id));
+    label.append(radio, document.createTextNode(option.label));
+    holder.appendChild(label);
+  }
+}
+
+function buildSizeOptions() {
+  const select = $('size');
+  for (const size of Object.values(SIZES)) {
+    const option = document.createElement('option');
+    option.value = size.id;
+    option.textContent = size.label;
+    select.appendChild(option);
+  }
+}
+
+function bindPanelControls() {
+  for (let i = 0; i < 3; i += 1) {
+    const fileInput = $(`file${i}`);
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      const image = await loadImage(URL.createObjectURL(file));
+      state.images[i] = image;
+      state.photos[i] = null;
+      $(`sample${i}`).value = '';
+      draw();
+      say(`Panel ${i + 1}: your photo loaded. Drag it to reposition.`);
+    });
+
+    const sampleSelect = $(`sample${i}`);
+    for (const sampleId of SAMPLE_ORDER) {
+      const option = document.createElement('option');
+      option.value = sampleId;
+      option.textContent = SAMPLES[sampleId].label;
+      sampleSelect.appendChild(option);
+    }
+    sampleSelect.addEventListener('change', () => loadSample(i, sampleSelect.value));
+
+    const zoom = $(`zoom${i}`);
+    zoom.addEventListener('input', () => {
+      state.crops[i].zoom = Number(zoom.value);
+      $(`zoomValue${i}`).textContent = `${state.crops[i].zoom.toFixed(1)}x`;
+      draw();
+    });
+  }
+}
+
+// Drag a panel to reposition its photo inside the frame. The pointer maps
+// from the displayed preview back to canvas pixels, then to the panel.
+function bindDrag() {
+  let dragging = null;
+  const toCanvas = (event) => {
+    const rect = preview.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * preview.width,
+      y: ((event.clientY - rect.top) / rect.height) * preview.height,
+    };
+  };
+  preview.addEventListener('pointerdown', (event) => {
+    const point = toCanvas(event);
+    const rects = panelRects(state.layout, preview.width, preview.height);
+    const index = rects.findIndex((r) => point.x >= r.x && point.x <= r.x + r.w && point.y >= r.y && point.y <= r.y + r.h);
+    if (index === -1 || !state.images[index]) return;
+    dragging = { index, startX: point.x, startY: point.y, ox: state.crops[index].ox, oy: state.crops[index].oy };
+    preview.setPointerCapture(event.pointerId);
+    preview.style.cursor = 'grabbing';
   });
+  preview.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const point = toCanvas(event);
+    const rects = panelRects(state.layout, preview.width, preview.height);
+    const rect = rects[dragging.index];
+    const crop = state.crops[dragging.index];
+    crop.ox = Math.max(-1, Math.min(1, dragging.ox - ((point.x - dragging.startX) / rect.w) * 2));
+    crop.oy = Math.max(-1, Math.min(1, dragging.oy - ((point.y - dragging.startY) / rect.h) * 2));
+    draw();
+  });
+  const endDrag = () => {
+    dragging = null;
+    preview.style.cursor = 'grab';
+  };
+  preview.addEventListener('pointerup', endDrag);
+  preview.addEventListener('pointercancel', endDrag);
+  preview.addEventListener('dblclick', () => {
+    state.crops = state.crops.map(() => ({ zoom: 1, ox: 0, oy: 0 }));
+    syncControls();
+    draw();
+    say('Crops reset.');
+  });
+}
+
+function bindTextControls() {
+  $('title').addEventListener('input', (event) => {
+    state.title = event.target.value;
+    draw();
+  });
+  $('subtitle').addEventListener('input', (event) => {
+    state.subtitle = event.target.value;
+    draw();
+  });
+  $('size').addEventListener('change', (event) => {
+    state.size = event.target.value;
+    draw();
+  });
+  $('export').addEventListener('click', exportPng);
+  $('shuffle').addEventListener('click', shuffleLook);
+}
+
+// Handles the screenshot scenes (?shot=cover / ?shot=editor) and hands the
+// ready flag to the shot runner. Exposed for the shot script's export step.
+window.__viceLights = { state, draw, exportPng, applyVariant, loadSample };
+
+buildVariantButtons();
+buildRadioGroup('layout', LAYOUTS, (id) => { state.layout = id; draw(); });
+buildRadioGroup('grade', GRADES, (id) => { state.grade = id; draw(); });
+buildRadioGroup('titleStyle', TITLE_STYLES, (id) => { state.titleStyle = id; draw(); });
+buildSizeOptions();
+bindPanelControls();
+bindDrag();
+bindTextControls();
+
+const params = new URLSearchParams(location.search);
+if (params.has('shot')) {
+  runShot(params.get('shot'), params, { state, draw, applyVariant, loadSample, exportPng });
 } else {
-  // First paint: the default variant's photos, then the live preview.
-  applyVariant('palmHeist').then(() => {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      window.__shotReady = true;
-    }));
-  });
+  applyVariant('palmHeist');
 }

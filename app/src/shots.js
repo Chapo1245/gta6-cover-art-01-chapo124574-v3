@@ -1,47 +1,40 @@
-// Fixed scenes for screenshots: ?shot=cover shows the cover alone, ?shot=editor
-// shows the page with a sample photo loaded. Query parameters pick the variant,
-// the size and the caption, so every screenshot is a scene the app itself draws.
-// window.__shotReady is set once painted (and after an export, if asked for).
-//   ?shot=cover&variant=neonTide&size=landscape
-//   ?shot=cover&variant=palmHeist&size=portrait&export=1
-//   ?shot=editor&variant=boulevardNights
+// Fixed scenes for screenshots: ?shot=cover shows the exported cover alone,
+// ?shot=editor shows the editor with photos loaded. `variant` picks the look,
+// `size` the post size, `caption` the title words, and `export=1` triggers a
+// PNG download as well. window.__shotReady is set once the scene is painted.
 
-/** Waits for the app's fonts, then flags the scene ready after two frames. */
-export function markShotReady() {
-  const done = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-    window.__shotReady = true;
-  }));
-  if (document.fonts?.ready) document.fonts.ready.then(done).catch(done);
-  else done();
-}
-
-/** Runs one screenshot scene against the editor API main.js passes in. */
 export async function runShot(shot, query, api) {
-  const variant = query.get('variant') ?? 'neonTide';
-  const size = query.get('size');
-  if (size) api.state.size = size;
-  const title = query.get('title');
-  const subtitle = query.get('subtitle');
-  const tagline = query.get('tagline');
+  const variant = query.get('variant') ?? 'palmHeist';
+  const size = query.get('size') ?? 'landscape';
+  const caption = query.get('caption');
+  const { state } = api;
 
+  if (shot === 'cover') document.body.classList.add('shot-cover');
+  state.size = size;
   await api.applyVariant(variant);
-  if (title !== null) api.state.title = title;
-  if (subtitle !== null) api.state.subtitle = subtitle;
-  if (tagline !== null) api.state.tagline = tagline;
-  api.redrawCover();
-
-  if (shot === 'cover') {
-    document.body.classList.add('shot-cover');
-    api.redrawCover();
-    if (query.get('export') === '1') {
-      api.exportCoverPng();
-      // Give the download a moment to start before flagging ready.
-      await new Promise((resolve) => setTimeout(resolve, 700));
-    }
-  } else if (shot === 'editor') {
-    // Scroll so the export controls are visible; the preview is sticky and
-    // stays on screen, so the shot still shows the app with a photo loaded.
-    window.scrollTo(0, document.body.scrollHeight);
+  if (caption) {
+    state.title = caption;
+    const titleInput = document.getElementById('title');
+    if (titleInput) titleInput.value = caption;
   }
-  markShotReady();
+  if (query.get('subtitle')) {
+    state.subtitle = query.get('subtitle');
+  }
+  api.draw();
+
+  if (shot === 'editor') {
+    const exportButton = document.getElementById('export');
+    if (exportButton) exportButton.scrollIntoView({ block: 'center' });
+  }
+
+  // Wait for the local Geist faces and two frames so the paint is settled.
+  await document.fonts.ready;
+  api.draw();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  if (query.get('export') === '1') {
+    await api.exportPng();
+    window.__exportDone = true;
+  }
+  window.__shotReady = true;
 }
